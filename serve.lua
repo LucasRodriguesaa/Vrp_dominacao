@@ -1,32 +1,66 @@
-Config = {}
+local Tunnel = module("vrp","lib/Tunnel")
+local Proxy = module("vrp","lib/Proxy")
 
-Config.Dominacao = {
-    {
-        id = 1, 
-        nome = "Morro do Vagos",
-        pos = { x = 116.6, y = -1949.8, z = 20.7 }, 
-        raioSpawn = 25.0,
-        quantidadeNPCs = 15,
-        grupoParaSetar = "LiderVagos", 
-        permPermitida = "vagos.permissao",
-        npcHash = "g_m_y_mexgoon_01", 
-        armaNPC = "WEAPON_MICROSMG",
-        precisaoNPC = 80,
-        vidaNPC = 400,
-        coleteNPC = 100
-    },
-    {
-        id = 2, 
-        nome = "Mansão Cartel",
-        pos = { x = -2167.3, y = 5195.1, z = 16.8 }, 
-        raioSpawn = 35.0,
-        quantidadeNPCs = 20,
-        grupoParaSetar = "LiderCartel", 
-        permPermitida = "cartel.permissao",
-        npcHash = "s_m_m_chemsec_01", 
-        armaNPC = "WEAPON_CARBINERIFLE",
-        precisaoNPC = 90,
-        vidaNPC = 600,
-        coleteNPC = 100
-    }
-}
+vRP = Proxy.getInterface("vRP")
+vRPclient = Tunnel.getInterface("vRP")
+
+src = {}
+Tunnel.bindInterface("vrp_dominacao",src)
+
+local dominacaoEmCurso = false
+local areasFinalizadas = {}
+
+-- Verifica se pode iniciar
+function src.checkPodeDominar(index)
+    local source = source
+    local user_id = vRP.getUserId(source)
+    local cfg = Config.Dominacao[index]
+
+    if dominacaoEmCurso then
+        TriggerClientEvent("Notify",source,"importante","Já existe um conflito ativo na cidade!")
+        return false
+    end
+
+    if vRP.hasPermission(user_id, cfg.permPermitida) then
+        dominacaoEmCurso = true
+        return true
+    else
+        TriggerClientEvent("Notify",source,"negado","Você não tem permissão para tentar liderar esta área.")
+        return false
+    end
+end
+
+RegisterServerEvent("domination:liberarTrava")
+AddEventHandler("domination:liberarTrava", function()
+    dominacaoEmCurso = false
+end)
+
+RegisterServerEvent("domination:checkReward")
+AddEventHandler("domination:checkReward", function(index, areaId)
+    local source = source
+    local user_id = vRP.getUserId(source)
+    local cfg = Config.Dominacao[index]
+
+    if cfg and cfg.id == areaId and not areasFinalizadas[areaId] then
+        areasFinalizadas[areaId] = true
+        dominacaoEmCurso = false
+        
+        vRP.addUserGroup(user_id, cfg.grupoParaSetar)
+        TriggerClientEvent("domination:removerAreaGlobal", -1, areaId)
+        TriggerClientEvent("Notify", -1, "aviso", "A área "..cfg.nome.." agora tem um novo Líder!", 8000)
+    end
+end)
+
+-- Sincronização Global
+AddEventHandler("vRP:playerSpawn", function(user_id, source, first_spawn)
+    if first_spawn then
+        for id, status in pairs(areasFinalizadas) do
+            if status then TriggerClientEvent("domination:removerAreaGlobal", source, id) end
+        end
+    end
+end)
+
+-- Reset de trava se o jogador cair
+AddEventHandler("playerDropped", function(reason)
+    dominacaoEmCurso = false
+end)
